@@ -30,57 +30,58 @@
 
 <script>
 (function(){
-  const WASMER_BASE = 'https://smallphpproxy-0ef01.wasmer.app'; // your wasmer domain
+  const WASMER_BASE = 'https://smallphpproxy-0ef01.wasmer.app'; // your Wasmer domain
   const STATUS = document.getElementById('status');
   const MAPINFO = document.getElementById('mapinfo');
   const PLAYER = document.getElementById('bgmPlayer');
   const BTN = document.getElementById('connect');
-
-  function b64url(s){ return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
 
   BTN.addEventListener('click', function(){
     const user = document.getElementById('username').value.trim();
     if (!user) return alert('enter username');
 
     STATUS.textContent = 'connecting to events...';
-    // SSE to Wasmer events.php
+
+    // SSE connection
     const es = new EventSource(WASMER_BASE + '/events.php?user=' + encodeURIComponent(user));
 
-    es.addEventListener('open', ()=> STATUS.textContent = 'connected as ' + user);
-    es.addEventListener('error', (e)=> {
-      STATUS.textContent = 'sse error';
+    es.addEventListener('open', () => {
+      STATUS.textContent = 'connected as ' + user;
+    });
+
+    es.addEventListener('error', (e) => {
+      STATUS.textContent = 'sse error, retrying...';
       console.warn('sse error', e);
     });
 
-    es.addEventListener('mapstart', function(e){
+    es.addEventListener('mapstart', (e) => {
       try {
         const parsed = JSON.parse(e.data);
         const p = parsed.payload || parsed;
-        MAPINFO.textContent = 'map: ' + (p.map || 'unknown') + ' | raw: ' + (p.rawbgm || p.bgm || '');
-        // if valid field present and true, prefer using proxy (more reliable)
+
+        MAPINFO.textContent = 'map: ' + (p.map || 'unknown') + ' | raw BGM: ' + (p.rawbgm || p.bgm || '');
+
         const url = p.bgm || p.rawbgm || '';
         if (!url) {
-          STATUS.textContent = 'no bgm for this map';
+          STATUS.textContent = 'no BGM for this map';
           return;
         }
 
-        if (p.valid === false) {
-          STATUS.textContent = 'bgm not playable directly; using proxy';
+        // first attempt direct play
+        PLAYER.src = url;
+        PLAYER.play().catch(() => { /* autoplay blocked */ });
+
+        // fallback to proxy if direct fails
+        PLAYER.onerror = function(){
+          STATUS.textContent = 'direct play failed, using proxy';
           PLAYER.src = WASMER_BASE + '/proxy.php?url=' + encodeURIComponent(url);
-        } else {
-          // try direct first (less bandwidth). fallback to proxy on error.
-          PLAYER.src = url;
-          PLAYER.play().catch(()=>{ /* autoplay blocked */ });
-          // set an error handler to fallback
-          PLAYER.onerror = function(){
-            STATUS.textContent = 'direct play failed, falling back to proxy';
-            PLAYER.src = WASMER_BASE + '/proxy.php?url=' + encodeURIComponent(url);
-            PLAYER.play().catch(()=>{});
-          };
-        }
+          PLAYER.play().catch(()=>{});
+        };
+
         STATUS.textContent = 'playing: ' + (p.map || 'unknown');
+
       } catch (err) {
-        console.error('bad sse payload', err);
+        console.error('bad SSE payload', err);
       }
     });
   });
